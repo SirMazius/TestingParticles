@@ -1,0 +1,98 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+//#include "Assets/Code/AuxShader.compute"
+#include "Assets/Code/Integrator.cginc"
+#include "Assets/Code/tHash.cginc"
+void CheckBounds(int realIndex);
+RWStructuredBuffer<float4> positionBuffer;
+RWStructuredBuffer<float3> forceBuffer;
+RWStructuredBuffer<float3> velocityBuffer;
+RWStructuredBuffer<int> auxBuffer;
+RWStructuredBuffer<int> hTable;
+RWStructuredBuffer<int> indexBuffer;
+
+
+/*
+	Variables globales de la simulacion
+*/
+uint nParticles;
+uint width;
+
+const float dt = 0.02;
+[numthreads(1024,1,1)]
+void CSMain (uint index : SV_GROUPINDEX, uint3 groupId : SV_GROUPID)
+{
+	int neighbors[40] = {-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
+	
+	uint realIndex = (groupId.x + width * (groupId.y + 0 * groupId.z)) * 1024 + index;
+	if (realIndex < nParticles) {
+		// CheckBounds(realIndex);
+		float3 pos = float3(positionBuffer[realIndex].x, positionBuffer[realIndex].y, positionBuffer[realIndex].z);
+		//GetNeighbors(hTable, neighbors, pos);
+		Integrate(forceBuffer, positionBuffer, velocityBuffer, auxBuffer, realIndex);
+		// auxBuffer[realIndex] = Hash(positionBuffer, realIndex);
+	}
+}
+
+/*
+	Limpia la tabla poniendo todas sus posiciones a -1
+*/
+#pragma kernel CleanTable
+[numthreads(1024,1,1)]
+void CleanTable (uint index : SV_GROUPINDEX, uint3 groupId : SV_GROUPID)
+{
+	uint realIndex = (groupId.x + width * (groupId.y + 0 * groupId.z)) * 1024 + index;
+	uint maxN = nBuckets * sizeBuckets;
+	if (realIndex < maxN) {
+		hTable[realIndex] = -1;
+	}
+}
+
+#pragma kernel HashParticles
+[numthreads(1024,1,1)]
+void HashParticles (uint index : SV_GROUPINDEX, uint3 groupId : SV_GROUPID)
+{
+	uint realIndex = (groupId.x + width * (groupId.y + 0 * groupId.z)) * 1024 + index;
+	if (realIndex < nParticles) {
+		int i = Hash(positionBuffer, realIndex); 
+		indexBuffer[realIndex] = i;
+	}
+}
+
+#pragma kernel InsertParticles
+[numthreads(1024,1,1)]
+void InsertParticles (uint index : SV_GROUPINDEX, uint3 groupId : SV_GROUPID)
+{
+	// uint realIndex = (groupId.x + width * (groupId.y + 0 * groupId.z)) * 1024 + index;
+	// if (realIndex < nParticles) {
+	// 	for (uint i = 0; i < nParticles; i++) {
+	// 		int auxIndex = indexBuffer[i];
+	// 		if (auxIndex == (int)realIndex) {
+	// 			int auxCounter = 0;
+	// 			while (auxCounter < sizeBuckets) {
+	// 				if (hTable[realIndex + auxCounter] == -1) {
+	// 					hTable[realIndex + auxCounter] = auxIndex;
+	// 				} else {
+	// 					auxCounter++;
+	// 				}
+	// 			}
+	// 		}
+	// 	}
+	// }
+}
+
+
+void CheckBounds(int realIndex) {
+	if (abs(positionBuffer[realIndex].x) > 100)
+		velocityBuffer[realIndex].x *= -1;
+
+	if (abs(positionBuffer[realIndex].y) > 100)
+		velocityBuffer[realIndex].y *= -1;
+
+	if (abs(positionBuffer[realIndex].z) > 100)
+		velocityBuffer[realIndex].z *= -1;
+}
